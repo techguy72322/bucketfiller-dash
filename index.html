@@ -145,4 +145,776 @@
         }
 
         .opt-btn {
-            background: #2e8
+            background: #2e86de;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            pointer-events: auto;
+        }
+
+        .opt-btn:hover {
+            background: #54a0ff;
+        }
+
+        #feedback-msg {
+            height: 24px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .correct { color: #1dd1a1; }
+        .wrong { color: #ff6b6b; }
+
+        /* HUD Header */
+        #hud {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .hud-left, .hud-right {
+            display: flex;
+            align-items: center;
+        }
+
+        .hud-item {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-right: 8px;
+        }
+
+        #school-banner {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: #ffd700;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 5;
+            letter-spacing: 1px;
+            border: 1px solid rgba(255,215,0,0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- Canvas Game Screen -->
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+
+        <!-- Dynamic School Campus Indicator -->
+        <div id="school-banner">CAMPUS: JULIE BILLIART WESTLAKE</div>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div class="hud-left">
+                <div class="hud-item" id="score-display">Score: 0</div>
+                <div class="hud-item" id="best-display">Best: 0</div>
+            </div>
+            <div class="hud-right">
+                <button class="hud-btn" id="pause-btn">⏸ Pause</button>
+                <button class="hud-btn" id="restart-btn">🔄 Restart</button>
+            </div>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="overlay">
+            <h1>Bucket Filler Math Dash</h1>
+            <p>Be Kind & Jump Over Sunflowers! <br>Hit an obstacle? Solve math facts to get back in the game!</p>
+            <p style="font-size: 0.9rem; color: #aaa;">Controls: Press <b>SPACE</b> or <b>CLICK/TAP</b> to Jump | <b>P</b> to Pause</p>
+            <button class="btn" id="start-btn">PLAY GAME</button>
+        </div>
+
+        <!-- Pause Screen -->
+        <div id="pause-screen" class="overlay hidden">
+            <h1>GAME PAUSED</h1>
+            <p>Take a breath!</p>
+            <button class="btn" id="resume-btn">RESUME GAME</button>
+        </div>
+
+        <!-- Math Fact Modal Overlay -->
+        <div id="math-overlay" class="overlay hidden">
+            <div id="math-modal">
+                <h2 style="color: #ffda79;">Oops! Bucket Spilled! 🪣</h2>
+                <p style="margin-bottom: 5px; color: #ccc;">Answer correctly to continue running!</p>
+                <div id="math-question">6 × 7 = ?</div>
+                <div class="options-grid" id="options-container">
+                    <!-- Option Buttons Injected via JS -->
+                </div>
+                <div id="feedback-msg"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Web Audio API Synthesizer ---
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playJump() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            playCrash() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            }
+
+            playCorrect() {
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(880, now + 0.1);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(now + 0.25);
+            }
+        }
+
+        const sound = new SoundFX();
+
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const schoolBanner = document.getElementById('school-banner');
+        const startScreen = document.getElementById('start-screen');
+        const pauseScreen = document.getElementById('pause-screen');
+        const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const resumeBtn = document.getElementById('resume-btn');
+        const restartBtn = document.getElementById('restart-btn');
+
+        const mathOverlay = document.getElementById('math-overlay');
+        const mathQuestionEl = document.getElementById('math-question');
+        const optionsContainer = document.getElementById('options-container');
+        const feedbackEl = document.getElementById('feedback-msg');
+        const scoreDisplay = document.getElementById('score-display');
+        const bestDisplay = document.getElementById('best-display');
+
+        // Four Julie Billiart Schools Campuses
+        const campuses = [
+            "JULIE BILLIART WESTLAKE",
+            "JULIE BILLIART BRECKSVILLE",
+            "JULIE BILLIART LYNDHURST",
+            "JULIE BILLIART AKRON"
+        ];
+        let currentCampusIndex = 0;
+
+        let gameState = 'START'; // START, PLAYING, PAUSED, MATH_PAUSE
+        let score = 0;
+        let highScore = 0;
+        let gameSpeed = 5;
+        let animationFrameId;
+
+        // Ground Physics
+        const groundY = 370;
+
+        // Player (Bucket Filler)
+        const player = {
+            x: 80,
+            y: groundY - 50,
+            width: 50,
+            height: 50,
+            velocityY: 0,
+            gravity: 0.6,
+            jumpStrength: -13,
+            isGrounded: true,
+            rotation: 0
+        };
+
+        // Obstacles (Sunflowers)
+        let obstacles = [];
+        let obstacleTimer = 0;
+
+        // Star Particles in Background
+        const stars = Array.from({ length: 25 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * (groundY - 150),
+            size: Math.random() * 3 + 2,
+            speed: Math.random() * 0.5 + 0.2,
+            color: ['#ffd700', '#ff7675', '#74b9ff', '#55efc4', '#a29bfe'][Math.floor(Math.random() * 5)]
+        }));
+
+        // --- Custom Asset Drawing Functions ---
+
+        // 1. Draw Julie Billiart School Building
+        function drawSchoolBuilding(x, campusName) {
+            ctx.save();
+            ctx.translate(x, groundY - 180);
+
+            // Brick Main Structure
+            ctx.fillStyle = '#8b261d';
+            ctx.fillRect(0, 20, 260, 160);
+
+            // Brick Texture Lines
+            ctx.strokeStyle = '#6d1d16';
+            ctx.lineWidth = 1;
+            for (let i = 30; i < 180; i += 15) {
+                ctx.beginPath();
+                ctx.moveTo(0, i);
+                ctx.lineTo(260, i);
+                ctx.stroke();
+            }
+
+            // Pillars
+            ctx.fillStyle = '#d1c7b7';
+            ctx.fillRect(10, 20, 30, 160);
+            ctx.fillRect(220, 20, 30, 160);
+
+            // Central Arch Front
+            ctx.fillStyle = '#a63426';
+            ctx.fillRect(60, 0, 140, 180);
+            ctx.fillStyle = '#d1c7b7';
+            ctx.fillRect(55, 0, 150, 15);
+
+            // Glass Entrance Banner
+            ctx.fillStyle = '#0f2b48';
+            ctx.fillRect(75, 25, 110, 125);
+
+            // Blue Glass Outline
+            ctx.strokeStyle = '#d1c7b7';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(75, 25, 110, 125);
+
+            // School Logo (Yellow Sunflower Symbol on Entrance)
+            ctx.save();
+            ctx.translate(130, 75);
+            ctx.fillStyle = '#f1c40f';
+            for (let i = 0; i < 8; i++) {
+                ctx.rotate(Math.PI / 4);
+                ctx.beginPath();
+                ctx.ellipse(0, 12, 5, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.fillStyle = '#0f2b48';
+            ctx.beginPath();
+            ctx.arc(0, 0, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Text Banner above door
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 9px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText("JULIE BILLIART", 130, 110);
+            
+            // Dynamic Campus Subtitle
+            const subName = campusName.replace("JULIE BILLIART ", "");
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 8px Arial';
+            ctx.fillText(subName, 130, 122);
+
+            // Glass Doors
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(85, 130, 40, 50);
+            ctx.fillRect(135, 130, 40, 50);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(85, 130, 40, 50);
+            ctx.strokeRect(135, 130, 40, 50);
+
+            // Roof Towers
+            ctx.fillStyle = '#333333';
+            ctx.beginPath();
+            ctx.moveTo(-5, 20);
+            ctx.lineTo(25, -5);
+            ctx.lineTo(50, 20);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(210, 20);
+            ctx.lineTo(235, -5);
+            ctx.lineTo(265, 20);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // 2. Draw Bucket Filler Logo (Player)
+        function drawBucketFiller(x, y, size, rotation) {
+            ctx.save();
+            ctx.translate(x + size / 2, y + size / 2);
+            ctx.rotate(rotation);
+
+            // Outer Purple Circle Badge
+            ctx.beginPath();
+            ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#6c207e';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            // Silver Bucket Body
+            ctx.beginPath();
+            ctx.moveTo(-16, -2);
+            ctx.lineTo(16, -2);
+            ctx.lineTo(12, 18);
+            ctx.lineTo(-12, 18);
+            ctx.closePath();
+            const bucketGradient = ctx.createLinearGradient(-16, 0, 16, 0);
+            bucketGradient.addColorStop(0, '#b2bec3');
+            bucketGradient.addColorStop(0.5, '#dfe6e9');
+            bucketGradient.addColorStop(1, '#636e72');
+            ctx.fillStyle = bucketGradient;
+            ctx.fill();
+            ctx.strokeStyle = '#2d3436';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // Bucket Smile & Eyes
+            ctx.fillStyle = '#2d3436';
+            ctx.beginPath();
+            ctx.arc(-5, 5, 1.8, 0, Math.PI * 2);
+            ctx.arc(5, 5, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(0, 8, 5, 0.1 * Math.PI, 0.9 * Math.PI);
+            ctx.stroke();
+
+            // Bucket Handle
+            ctx.beginPath();
+            ctx.arc(0, -2, 16, Math.PI, 0);
+            ctx.strokeStyle = '#b2bec3';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Colorful Stars & Hearts spilling out
+            const items = [
+                {x: -10, y: -10, color: '#ff4757', type: 'heart'},
+                {x: 0, y: -14, color: '#ffa502', type: 'star'},
+                {x: 10, y: -10, color: '#2ed573', type: 'star'},
+                {x: -4, y: -8, color: '#1e90ff', type: 'star'},
+                {x: 6, y: -6, color: '#eccc68', type: 'heart'}
+            ];
+
+            items.forEach(item => {
+                ctx.fillStyle = item.color;
+                if(item.type === 'star') {
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, 3.5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+
+            ctx.restore();
+        }
+
+        // 3. Draw Sunflower (Obstacle)
+        function drawSunflower(x, y, width, height) {
+            ctx.save();
+            ctx.translate(x + width / 2, y + height);
+
+            // Stem
+            ctx.strokeStyle = '#2ed573';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -height + 18);
+            ctx.stroke();
+
+            // Green Leaf
+            ctx.fillStyle = '#2ed573';
+            ctx.beginPath();
+            ctx.ellipse(8, -height / 2, 8, 4, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Flower Head
+            ctx.translate(0, -height + 18);
+
+            // Yellow Petals
+            ctx.fillStyle = '#ffa502';
+            for (let i = 0; i < 12; i++) {
+                ctx.rotate(Math.PI / 6);
+                ctx.beginPath();
+                ctx.ellipse(0, 14, 4, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Brown Center
+            ctx.fillStyle = '#5d4037';
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Happy Face on Sunflower
+            ctx.fillStyle = '#ffd32a';
+            ctx.beginPath();
+            ctx.arc(-3, -2, 1.2, 0, Math.PI * 2);
+            ctx.arc(3, -2, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(0, 1, 4, 0, Math.PI);
+            ctx.strokeStyle = '#ffd32a';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // --- Math Problem Generator ---
+        let currentAnswer = 0;
+
+        function generateMathQuestion() {
+            // Focus on Elementary Multiplication Facts (2 through 12)
+            const num1 = Math.floor(Math.random() * 11) + 2;
+            const num2 = Math.floor(Math.random() * 11) + 2;
+            currentAnswer = num1 * num2;
+
+            mathQuestionEl.textContent = `${num1} × ${num2} = ?`;
+
+            // Generate 3 distractors
+            const options = new Set();
+            options.add(currentAnswer);
+
+            while (options.size < 4) {
+                let offset = (Math.floor(Math.random() * 5) + 1) * (Math.random() < 0.5 ? 1 : -1);
+                let wrongAns = currentAnswer + offset;
+                if (wrongAns > 0 && wrongAns !== currentAnswer) {
+                    options.add(wrongAns);
+                }
+            }
+
+            // Shuffle options
+            const shuffled = Array.from(options).sort(() => Math.random() - 0.5);
+
+            optionsContainer.innerHTML = '';
+            feedbackEl.textContent = '';
+            feedbackEl.className = '';
+
+            shuffled.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'opt-btn';
+                btn.textContent = opt;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    checkAnswer(opt);
+                };
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(selected) {
+            if (selected === currentAnswer) {
+                sound.playCorrect();
+                feedbackEl.textContent = 'Awesome Job! Keep Going!';
+                feedbackEl.className = 'correct';
+                
+                // Switch School Campus Background on each retry
+                currentCampusIndex = (currentCampusIndex + 1) % campuses.length;
+                schoolBanner.textContent = `CAMPUS: ${campuses[currentCampusIndex]}`;
+
+                setTimeout(() => {
+                    mathOverlay.classList.add('hidden');
+                    resumeAfterMath();
+                }, 700);
+            } else {
+                sound.playCrash();
+                feedbackEl.textContent = 'Try Again! You can do it!';
+                feedbackEl.className = 'wrong';
+            }
+        }
+
+        function triggerMathPause() {
+            gameState = 'MATH_PAUSE';
+            sound.playCrash();
+            generateMathQuestion();
+            mathOverlay.classList.remove('hidden');
+        }
+
+        function resumeAfterMath() {
+            // Clear nearby obstacles so player doesn't instantly die again
+            obstacles = [];
+            player.y = groundY - player.height;
+            player.velocityY = 0;
+            player.rotation = 0;
+            gameState = 'PLAYING';
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Controls & Pause Logic ---
+        function togglePause() {
+            if (gameState === 'PLAYING') {
+                gameState = 'PAUSED';
+                pauseScreen.classList.remove('hidden');
+            } else if (gameState === 'PAUSED') {
+                gameState = 'PLAYING';
+                pauseScreen.classList.add('hidden');
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function jump() {
+            if (gameState === 'PLAYING' && player.isGrounded) {
+                player.velocityY = player.jumpStrength;
+                player.isGrounded = false;
+                sound.playJump();
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyP') {
+                togglePause();
+            } else if (e.code === 'Space' || e.code === 'ArrowUp') {
+                sound.init();
+                if (gameState === 'START') {
+                    startGame();
+                } else if (gameState === 'PLAYING') {
+                    jump();
+                }
+            }
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            sound.init();
+            if (gameState === 'START') {
+                startGame();
+            } else if (gameState === 'PLAYING') {
+                jump();
+            }
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            sound.init();
+            if (gameState === 'START') {
+                startGame();
+            } else if (gameState === 'PLAYING') {
+                jump();
+            }
+        });
+
+        startBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sound.init();
+            startGame();
+        });
+
+        pauseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePause();
+        });
+
+        resumeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePause();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sound.init();
+            startGame();
+        });
+
+        function startGame() {
+            score = 0;
+            gameSpeed = 5;
+            obstacles = [];
+            player.y = groundY - player.height;
+            player.velocityY = 0;
+            player.rotation = 0;
+            gameState = 'PLAYING';
+            startScreen.classList.add('hidden');
+            pauseScreen.classList.add('hidden');
+            mathOverlay.classList.add('hidden');
+            schoolBanner.textContent = `CAMPUS: ${campuses[currentCampusIndex]}`;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Main Game Loop ---
+        let schoolBuildingX = 300;
+
+        function update() {
+            score++;
+            scoreDisplay.textContent = `Score: ${Math.floor(score / 5)}`;
+            if (Math.floor(score / 5) > highScore) {
+                highScore = Math.floor(score / 5);
+                bestDisplay.textContent = `Best: ${highScore}`;
+            }
+
+            // Speed progression
+            if (score % 500 === 0 && gameSpeed < 10) {
+                gameSpeed += 0.5;
+            }
+
+            // Player Physics
+            player.velocityY += player.gravity;
+            player.y += player.velocityY;
+
+            if (player.y >= groundY - player.height) {
+                player.y = groundY - player.height;
+                player.velocityY = 0;
+                player.isGrounded = true;
+                player.rotation = 0;
+            } else {
+                // Rotation during jump
+                player.rotation += 0.08;
+            }
+
+            // Move Background Building
+            schoolBuildingX -= gameSpeed * 0.2;
+            if (schoolBuildingX < -300) {
+                schoolBuildingX = canvas.width + 100;
+            }
+
+            // Move Stars
+            stars.forEach(star => {
+                star.x -= star.speed;
+                if (star.x < 0) star.x = canvas.width;
+            });
+
+            // Obstacle Spawning
+            obstacleTimer++;
+            if (obstacleTimer > Math.max(60, 110 - gameSpeed * 4)) {
+                if (Math.random() < 0.7) {
+                    obstacles.push({
+                        x: canvas.width,
+                        y: groundY - 45,
+                        width: 35,
+                        height: 45
+                    });
+                    obstacleTimer = 0;
+                }
+            }
+
+            // Move & Check Obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.x -= gameSpeed;
+
+                // Collision Check
+                const padding = 6;
+                if (
+                    player.x + padding < obs.x + obs.width - padding &&
+                    player.x + player.width - padding > obs.x + padding &&
+                    player.y + padding < obs.y + obs.height &&
+                    player.y + player.height > obs.y + padding
+                ) {
+                    triggerMathPause();
+                    return;
+                }
+
+                // Remove offscreen
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        function draw() {
+            // Sky Background Gradient
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            skyGradient.addColorStop(0, '#0f0c29');
+            skyGradient.addColorStop(0.5, '#302b63');
+            skyGradient.addColorStop(1, '#24243e');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Stars
+            stars.forEach(star => {
+                ctx.fillStyle = star.color;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw Parallax Julie Billiart School Building
+            drawSchoolBuilding(schoolBuildingX, campuses[currentCampusIndex]);
+
+            // Draw Floor/Ground
+            ctx.fillStyle = '#2d3436';
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
+            // Ground Top Border Line (Neon Blue Glow)
+            ctx.strokeStyle = '#00d2d3';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(canvas.width, groundY);
+            ctx.stroke();
+
+            // Draw Obstacles (Sunflowers)
+            obstacles.forEach(obs => {
+                drawSunflower(obs.x, obs.y, obs.width, obs.height);
+            });
+
+            // Draw Player (Bucket Filler)
+            drawBucketFiller(player.x, player.y, player.width, player.rotation);
+        }
+
+        function gameLoop() {
+            if (gameState === 'PLAYING') {
+                update();
+                draw();
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // Draw initial splash background
+        draw();
+    </script>
+</body>
+</html>
